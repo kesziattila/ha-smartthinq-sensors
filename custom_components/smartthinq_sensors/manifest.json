@@ -1,10 +1,10 @@
 {
   "domain": "smartthinq_sensors",
   "name": "SmartThinQ LGE Sensors",
-  "documentation": "https://github.com/ollo69/ha-smartthinq-sensors",
-  "issue_tracker": "https://github.com/ollo69/ha-smartthinq-sensors/issues",
+  "documentation": "https://github.com/kesziattila/ha-smartthinq-sensors",
+  "issue_tracker": "https://github.com/kesziattila/ha-smartthinq-sensors/issues",
   "dependencies": [],
-  "codeowners": ["@ollo69"],
+  "codeowners": ["@kesziattila"],
   "requirements": ["pycountry>=20.7.3"],
   "config_flow": true,
   "iot_class": "cloud_polling",
