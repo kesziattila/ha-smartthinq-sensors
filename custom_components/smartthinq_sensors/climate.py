@@ -57,6 +57,8 @@ ATTR_SWING_HORIZONTAL = "swing_mode_horizontal"
 ATTR_SWING_VERTICAL = "swing_mode_vertical"
 SWING_PREFIX = ["Vertical", "Horizontal"]
 
+ATTR_TEMP_SOURCE = "Temperature source"
+
 SCAN_INTERVAL = timedelta(seconds=120)
 
 _LOGGER = logging.getLogger(__name__)
@@ -213,6 +215,12 @@ class LGEACClimate(LGEClimate):
         if self._support_ver_swing:
             attr[ATTR_SWING_VERTICAL] = self._get_swing_mode(False)
 
+        # TODO: implement it
+
+#        if self._device.is_air_to_water:
+#            attr[ATTR_TEMP_SOURCE] = TEMP_SOURCE_ROOM
+#            curr_temp = self._api.state.device_features.get(FEAT_OUT_WATER_TEMP)
+
         return attr
 
     @property
@@ -262,8 +270,6 @@ class LGEACClimate(LGEClimate):
     def current_temperature(self) -> float:
         """Return the current temperature."""
         curr_temp = None
-        if self._device.is_air_to_water:
-            curr_temp = self._api.state.device_features.get(FEAT_OUT_WATER_TEMP)
         if curr_temp is None:
             curr_temp = self._api.state.current_temp
         return curr_temp

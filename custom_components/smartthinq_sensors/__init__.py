@@ -54,7 +54,7 @@ from .const import (
 
 
 SMARTTHINQ_PLATFORMS = [
-    "sensor", "binary_sensor", "climate", "switch"
+    "sensor", "binary_sensor", "climate", "switch", "water_heater"
 ]
 
 SMARTTHINQ_SCHEMA = vol.Schema(

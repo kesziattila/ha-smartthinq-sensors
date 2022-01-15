@@ -142,7 +142,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class Monitor(object):
     """A monitoring task for a device.
-        
+
         This task is robust to some API-level failures. If the monitoring
         task expires, it attempts to start a new one automatically. This
         makes one `Monitor` object suitable for long-term monitoring.
@@ -352,7 +352,7 @@ class Monitor(object):
 
 class DeviceInfo(object):
     """Details about a user's device.
-        
+
     This is populated from a JSON dictionary provided by the API.
     """
 
@@ -520,7 +520,7 @@ class ModelInfo(object):
 
     def value(self, name):
         """Look up information about a value.
-        
+
         Return either an `EnumValue` or a `RangeValue`.
         """
         d = self._data["Value"][name]
@@ -750,7 +750,7 @@ class ModelInfo(object):
         protocol = self._data["Monitoring"]["protocol"]
         if isinstance(protocol, list):
             for elem in protocol:
-                if "superSet" in elem: 
+                if "superSet" in elem:
                     key = elem["value"]
                     value = data
                     for ident in elem["superSet"].split("."):
@@ -811,7 +811,7 @@ class ModelInfoV2(object):
 
     def value(self, data):
         """Look up information about a value.
-        
+
         Return either an `EnumValue` or a `RangeValue`.
         """
         data_type = data.get("dataType")
@@ -1045,7 +1045,7 @@ class ModelInfoV2AC(ModelInfo):
 
 class Device(object):
     """A higher-level interface to a specific device.
-        
+
     Unlike `DeviceInfo`, which just stores data *about* a device,
     `Device` objects refer to their client and can perform operations
     regarding the device.
@@ -1191,7 +1191,7 @@ class Device(object):
 
     def _get_config(self, key):
         """Look up a device's configuration for a given value.
-            
+
         The response is parsed as base64-encoded JSON.
         """
         if not self._should_poll:

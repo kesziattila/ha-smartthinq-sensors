@@ -12,10 +12,14 @@ from .device import (
 )
 from . import (
     FEAT_ENERGY_CURRENT,
+    FEAT_HOT_WATER_TARGET_TEMP,
     FEAT_HUMIDITY,
     FEAT_HOT_WATER_TEMP,
+    FEAT_HOT_WATER,
     FEAT_IN_WATER_TEMP,
     FEAT_OUT_WATER_TEMP,
+    FEAT_TEMP_SWITCH,
+    FEAT_WATER_CONTROL,
 )
 
 from .core_exceptions import InvalidRequestError
@@ -54,9 +58,20 @@ AC_STATE_POWER = [AC_STATE_POWER_V1, "airState.energy.onCurrent"]
 AC_STATE_HUMIDITY = ["SensorHumidity", "airState.humidity.current"]
 AC_STATE_DUCT_ZONE = ["DuctZoneType", "airState.ductZone.state"]
 
+AC_STATE_HOT_WATER = [None, "airState.miscFuncState.hotWater"]
+AC_STATE_HOT_WATER_TARGET_TEMP = [
+    None,
+    "airState.tempState.hotWaterTarget",
+]
+
+AC_STATE_WATER_CONTROL = ["AwhpWaterControl", "airState.miscFuncState.awhpWaterControl"]
+AC_STATE_TEMP_SWITCH = ["AwhpTempSwitch", "airState.miscFuncState.awhpTempSwitch"]
+
 CMD_STATE_OPERATION = [AC_CTRL_BASIC, "Set", AC_STATE_OPERATION]
 CMD_STATE_OP_MODE = [AC_CTRL_BASIC, "Set", AC_STATE_OPERATION_MODE]
 CMD_STATE_TARGET_TEMP = [AC_CTRL_BASIC, "Set", AC_STATE_TARGET_TEMP]
+CMD_STATE_HOT_WATER_TARGET_TEMP = [AC_CTRL_BASIC, "Set", AC_STATE_HOT_WATER_TARGET_TEMP]
+CMD_STATE_HOT_WATER = [AC_CTRL_BASIC, "Set", AC_STATE_HOT_WATER]
 CMD_STATE_WIND_STRENGTH = [AC_CTRL_BASIC, "Set", AC_STATE_WIND_STRENGTH]
 CMD_STATE_WDIR_HSTEP = [AC_CTRL_WIND_DIRECTION, "Set", AC_STATE_WDIR_HSTEP]
 CMD_STATE_WDIR_VSTEP = [AC_CTRL_WIND_DIRECTION, "Set", AC_STATE_WDIR_VSTEP]
@@ -183,6 +198,26 @@ class ACSwingMode(enum.Enum):
     SwingOff = "@OFF"
     SwingOn = "@ON"
 
+
+class AWHPTempSwitch(enum.Enum):
+    """The switch is based on air or water temperature."""
+
+    Air = "@AIR"
+    Water = "@WATER"
+
+class AWHPWaterControl(enum.Enum):
+    """Which sensor used when the AWHPTempSwitch is water"""
+
+    AllOutlet = "@ALL_OUTLET"
+    CoolInlet = "@COOL_INLET"
+    HeatInlet = "@HEAT_INLET"
+    AllInlet = "@ALL_INLET"
+
+class AWHPHotWater(enum.Enum):
+    """Whether a water heating is on or off."""
+
+    Off = "@OFF"
+    On = "@ON"
 
 class AirConditionerDevice(Device):
     """A higher-level interface for a AC."""
@@ -629,6 +664,20 @@ class AirConditionerDevice(Device):
         keys = self._get_cmd_keys(CMD_STATE_TARGET_TEMP)
         self.set(keys[0], keys[1], key=keys[2], value=conv_temp)
 
+    def set_hot_water(self, hotWater: str):
+        keys = self._get_cmd_keys(CMD_STATE_HOT_WATER)
+        mode_value = self.model_info.enum_value(keys[2], AWHPHotWater[hotWater].value)
+        self.set(keys[0], keys[1], key=keys[2], value=mode_value)
+
+    def set_hot_water_target_temp(self, temp):
+        conv_temp = self._f2c(temp)
+        # TODO: get it from config
+        range_info = [40, 55]
+        if range_info and not (range_info[0] <= conv_temp <= range_info[1]):
+            raise ValueError(f"Target DWH temperature out of range: {temp}")
+        keys = self._get_cmd_keys(CMD_STATE_HOT_WATER_TARGET_TEMP)
+        self.set(keys[0], keys[1], key=keys[2], value=conv_temp)
+
     def get_power(self):
         """Get the instant power usage in watts of the whole unit"""
         if not self._current_power_supported:
@@ -828,6 +877,61 @@ class AirConditionerStatus(DeviceStatus):
         )
 
     @property
+    def hot_water_target_temp(self):
+        if not self.is_info_v2:
+            return None
+
+        key = self._get_state_key(AC_STATE_HOT_WATER_TARGET_TEMP)
+        value = self._str_to_temp(self._data.get(key))
+        return self._update_feature(
+            FEAT_HOT_WATER_TARGET_TEMP, value, False
+        )
+
+    @property
+    def hot_water(self) -> AWHPHotWater:
+        if not self.is_info_v2:
+            return None
+
+        key = self._get_state_key(AC_STATE_HOT_WATER)
+
+        status = self.lookup_enum(key, True)
+        self._update_feature(
+            FEAT_HOT_WATER, status, False, key
+        )
+
+        try:
+            val = AWHPHotWater(self.lookup_enum(key, True))
+            return val
+        except ValueError:
+            return None
+
+    @property
+    def temp_switch(self):
+        if not self.is_info_v2:
+            return None
+
+        key = self._get_state_key(AC_STATE_TEMP_SWITCH)
+
+        try:
+            val = AWHPTempSwitch(self.lookup_enum(key, True))
+            return val
+        except ValueError:
+            return None
+
+    @property
+    def water_control(self):
+        if not self.is_info_v2:
+            return None
+
+        key = self._get_state_key(AC_STATE_WATER_CONTROL)
+
+        try:
+            val = AWHPWaterControl(self.lookup_enum(key, True))
+            return val
+        except ValueError:
+            return None
+
+    @property
     def in_water_current_temp(self):
         if not self.is_info_v2:
             return None
@@ -883,4 +987,5 @@ class AirConditionerStatus(DeviceStatus):
             self.out_water_current_temp,
             self.energy_current,
             self.humidity,
+            self.hot_water,
         ]

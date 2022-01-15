@@ -200,6 +200,8 @@ def lgedm2_post(
 
     _LOGGER.debug("lgedm2_post before: %s", url)
 
+    _LOGGER.debug("lgedm2_post json: %s", data)
+
     res = wideq_post(
         url,
         json=data if is_api_v2 else {DATA_ROOT: data},
@@ -413,7 +415,7 @@ def get_user_number(oauth_url, access_token):
 
 
 def auth_request(oauth_url, data, *, log_auth_info=False):
-    """Use an auth code to log into the v2 API and obtain an access token 
+    """Use an auth code to log into the v2 API and obtain an access token
     and refresh token.
     """
     url = urljoin(oauth_url, V2_AUTH_PATH)
@@ -444,7 +446,7 @@ def auth_request(oauth_url, data, *, log_auth_info=False):
 
 def auth_code_login(oauth_url, auth_code):
     """Get a new access_token using an authorization_code
-    
+
     May raise a `tokenError`.
     """
 
@@ -948,7 +950,7 @@ class ClientV2(object):
 
     def get_device(self, device_id) -> Optional["DeviceInfo"]:
         """Look up a DeviceInfo object by device ID.
-            
+
         Return None if the device does not exist.
         """
         for device in self.devices:
@@ -1045,7 +1047,7 @@ class ClientV2(object):
         cls, refresh_token, oauth_url, user_number, country=None, language=None
     ) -> "ClientV2":
         """Construct a client using just a refresh token.
-            
+
             This allows simpler state storage (e.g., for human-written
             configuration) but it is a little less efficient because we need
             to reload the gateway servers and restart the session.
