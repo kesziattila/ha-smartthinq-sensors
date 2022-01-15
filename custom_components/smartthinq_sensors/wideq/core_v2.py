@@ -65,8 +65,11 @@ API2_ERRORS = {
     9000: exc.InvalidRequestError,  # Surprisingly, an integer (not a string).
 }
 
-LOG_AUTH_INFO = False
+DEFAULT_TOKEN_VALIDITY = 3600  # seconds
+TOKEN_EXP_LIMIT = 60  # will expire within 60 seconds
+
 MIN_TIME_BETWEEN_UPDATE = 25  # seconds
+LOG_AUTH_INFO = False
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,7 +121,7 @@ def oauth2_signature(message, secret):
 
 
 def thinq2_headers(
-    extra_headers={},
+    extra_headers=None,
     access_token=None,
     user_number=None,
     country=DEFAULT_COUNTRY,
@@ -149,14 +152,15 @@ def thinq2_headers(
     if user_number:
         headers["x-user-no"] = user_number
 
-    return {**headers, **extra_headers}
+    add_headers = extra_headers or {}
+    return {**headers, **add_headers}
 
 
 def thinq2_get(
     url,
     access_token=None,
     user_number=None,
-    headers={},
+    headers=None,
     country=DEFAULT_COUNTRY,
     language=DEFAULT_LANGUAGE,
 ):
@@ -169,7 +173,7 @@ def thinq2_get(
         headers=thinq2_headers(
             access_token=access_token,
             user_number=user_number,
-            extra_headers=headers,
+            extra_headers=headers or {},
             country=country,
             language=language,
         ),
@@ -191,7 +195,7 @@ def lgedm2_post(
     data=None,
     access_token=None,
     user_number=None,
-    headers={},
+    headers=None,
     country=DEFAULT_COUNTRY,
     language=DEFAULT_LANGUAGE,
     is_api_v2=False,
@@ -208,7 +212,7 @@ def lgedm2_post(
         headers=thinq2_headers(
             access_token=access_token,
             user_number=user_number,
-            extra_headers=headers,
+            extra_headers=headers or {},
             country=country,
             language=language,
         ),
@@ -437,9 +441,9 @@ def auth_request(oauth_url, data, *, log_auth_info=False):
 
     res_data = res.json()
     if log_auth_info:
-        _LOGGER.debug(res_data)
+        _LOGGER.debug("Auth request result: %s", res_data)
     else:
-        _LOGGER.debug("Authorization request successful")
+        _LOGGER.debug("Authorization request completed successfully")
 
     return res_data
 
@@ -460,7 +464,7 @@ def auth_code_login(oauth_url, auth_code):
         log_auth_info=LOG_AUTH_INFO,
     )
 
-    return out["access_token"], out["refresh_token"]
+    return out["access_token"], out["expires_in"], out["refresh_token"]
 
 
 def refresh_auth(oauth_root, refresh_token):
@@ -474,7 +478,7 @@ def refresh_auth(oauth_root, refresh_token):
         log_auth_info=LOG_AUTH_INFO,
     )
 
-    return out["access_token"]
+    return out["access_token"], out["expires_in"]
 
 
 class Gateway(object):
@@ -526,21 +530,25 @@ class Gateway(object):
 
 
 class Auth(object):
-    def __init__(self, gateway, refresh_token, oauth_url, access_token, user_number):
+    def __init__(self, gateway, refresh_token, oauth_url, access_token, token_validity, user_number):
         self.gateway: Gateway = gateway
         self.refresh_token = refresh_token
         self.oauth_url = oauth_url
         self.access_token = access_token
+        self.token_validity = int(token_validity) if token_validity else DEFAULT_TOKEN_VALIDITY
         self.user_number = user_number
+        self._token_created_on = datetime.utcnow() if access_token else datetime.min
 
     @classmethod
     def from_url(cls, gateway, url):
         """Create an authentication using an OAuth callback URL.
         """
         oauth_url, auth_code, user_number = parse_oauth_callback(url)
-        access_token, refresh_token = auth_code_login(oauth_url, auth_code)
+        access_token, token_validity, refresh_token = auth_code_login(oauth_url, auth_code)
 
-        return cls(gateway, refresh_token, oauth_url, access_token, user_number)
+        return cls(
+            gateway, refresh_token, oauth_url, access_token, token_validity, user_number
+        )
 
     @classmethod
     def from_user_login(cls, gateway, username, password):
@@ -563,9 +571,12 @@ class Auth(object):
         refresh_token = token_info["refresh_token"]
         oauth_url = token_info["oauth2_backend_url"]
         access_token = token_info["access_token"]
+        token_validity = token_info["expires_in"]
         user_number = get_user_number(oauth_url, access_token)
 
-        return cls(gateway, refresh_token, oauth_url, access_token, user_number)
+        return cls(
+            gateway, refresh_token, oauth_url, access_token, token_validity, user_number
+        )
 
     def start_session(self):
         """Start an API session for the logged-in user. Return the
@@ -573,21 +584,39 @@ class Auth(object):
         """
         return Session(self)
 
-    def refresh(self):
-        """Refresh the authentication, returning a new Auth object.
+    def refresh(self, force_refresh=False):
+        """Refresh the authentication token, returning a new Auth object.
         """
+
+        access_token = self.access_token
 
         if not self.oauth_url:
             self.oauth_url = get_oauth_url(self.gateway.country, self.gateway.language)
-        new_access_token = refresh_auth(self.oauth_url, self.refresh_token)
+
+        get_new_token: bool = force_refresh or (access_token is None)
+        if not get_new_token:
+            diff = (datetime.utcnow() - self._token_created_on).total_seconds()
+            if (self.token_validity - diff) <= TOKEN_EXP_LIMIT:
+                get_new_token = True
+
+        if get_new_token:
+            _LOGGER.debug("Request new access token")
+            access_token, token_validity = refresh_auth(self.oauth_url, self.refresh_token)
+        else:
+            token_validity = str(self.token_validity)
+
         if not self.user_number:
-            self.user_number = get_user_number(self.oauth_url, new_access_token)
+            self.user_number = get_user_number(self.oauth_url, access_token)
+
+        if not get_new_token:
+            return self
 
         return Auth(
             self.gateway,
             self.refresh_token,
             self.oauth_url,
-            new_access_token,
+            access_token,
+            token_validity,
             self.user_number,
         )
 
@@ -601,6 +630,7 @@ class Auth(object):
             "refresh_token": self.refresh_token,
             "oauth_url": self.oauth_url,
             "access_token": self.access_token,
+            "expires_in": self.token_validity,
             "user_number": self.user_number,
         }
 
@@ -610,7 +640,8 @@ class Auth(object):
             gateway,
             data["refresh_token"],
             data["oauth_url"],
-            data["access_token"],
+            data.get("access_token"),
+            data.get("expires_in"),
             data["user_number"],
         )
 
@@ -624,6 +655,10 @@ class Session(object):
     @property
     def common_lang_pack_url(self):
         return self._common_lang_pack_url
+
+    def refresh_auth(self):
+        """Refresh associated authentication"""
+        self.auth = self.auth.refresh()
 
     def post(self, path, data=None):
         """Make a POST request to the APIv1 server.
@@ -867,7 +902,7 @@ class ClientV2(object):
         self._gateway: Optional[Gateway] = gateway
         self._auth: Optional[Auth] = auth
         self._session: Optional[Session] = session
-        self._last_device_update = datetime.now()
+        self._last_device_update = datetime.utcnow()
         self._lock = Lock()
 
         # The last list of devices we got from the server. This is the
@@ -941,7 +976,7 @@ class ClientV2(object):
     def refresh_devices(self):
         """Refresh the devices information for this client"""
         with self._lock:
-            call_time = datetime.now()
+            call_time = datetime.utcnow()
             difference = (call_time - self._last_device_update).total_seconds()
             if difference <= MIN_TIME_BETWEEN_UPDATE:
                 return
@@ -1017,7 +1052,7 @@ class ClientV2(object):
             self._gateway = None
         if not self._gateway:
             self._auth.refresh_gateway(self.gateway)
-        self._auth = self.auth.refresh()
+        self._auth = self.auth.refresh(True)
         self._session = self.auth.start_session()
         self._load_devices()
 
@@ -1057,7 +1092,7 @@ class ClientV2(object):
             country=country or DEFAULT_COUNTRY,
             language=language or DEFAULT_LANGUAGE,
         )
-        client._auth = Auth(client.gateway, refresh_token, oauth_url, None, user_number)
+        client._auth = Auth(client.gateway, refresh_token, oauth_url, None, None, user_number)
         client.refresh()
         return client
 
@@ -1077,7 +1112,7 @@ class ClientV2(object):
         """Create an authentication using an OAuth callback URL.
         """
         oauth_url, auth_code, user_number = parse_oauth_callback(url)
-        access_token, refresh_token = auth_code_login(oauth_url, auth_code)
+        access_token, _, refresh_token = auth_code_login(oauth_url, auth_code)
 
         return {
             "refresh_token": refresh_token,
