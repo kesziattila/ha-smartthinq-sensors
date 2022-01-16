@@ -142,18 +142,19 @@ _LOGGER = logging.getLogger(__name__)
 
 class Monitor(object):
     """A monitoring task for a device.
-        
+
         This task is robust to some API-level failures. If the monitoring
         task expires, it attempts to start a new one automatically. This
         makes one `Monitor` object suitable for long-term monitoring.
         """
     _client_lock = Lock()
     _client_connected = True
+    _critical_error = False
     _last_client_refresh = datetime.min
     _not_logged_count = 0
-    _critical_error_logged = False
 
     def __init__(self, client, device_id: str, device_type=PlatformType.THINQ1) -> None:
+        """Initialize monitor class."""
         self._client = client
         self._device_id = device_id
         self._device_type = device_type
@@ -161,37 +162,50 @@ class Monitor(object):
         self._disconnected = True
         self._not_logged = False
 
-    def _log_error(self, msg, *args, **kwargs):
-        if not self._critical_error_logged and self._not_logged_count >= MAX_UPDATE_FAIL_ALLOWED:
-            self._critical_error_logged = True
-            level = logging.ERROR
-        else:
-            level = logging.DEBUG
-        _LOGGER.log(level, msg, *args, **kwargs)
+    def _set_not_logged(self, msg, *, exc: Exception = None, exc_info=False):
+        """Log and raise error with different level depending on condition."""
+        _LOGGER.debug("DeviceID %s: %s", self._device_id, msg, exc_info=exc_info)
+        self._not_logged = True
+
+        if Monitor._client_connected:
+            Monitor._client_connected = False
+            _LOGGER.warning(msg, exc_info=exc_info)
+            return
+
+        if not Monitor._critical_error and Monitor._not_logged_count >= MAX_UPDATE_FAIL_ALLOWED:
+            Monitor._critical_error = True
+            _LOGGER.error(msg, exc_info=exc_info)
+
+        if Monitor._critical_error:
+            raise MonitorError(self._device_id, msg) from exc
+
+    def _refresh_token(self):
+        """Refresh the devices shared client auth token"""
+        with Monitor._client_lock:
+            self._client.session.refresh_auth()
 
     def _refresh_client(self):
         """Refresh the devices shared client"""
-        with self._client_lock:
-            if self._client_connected:
+        with Monitor._client_lock:
+            if Monitor._client_connected:
                 return True
-            call_time = datetime.now()
-            difference = (call_time - self._last_client_refresh).total_seconds()
+            call_time = datetime.utcnow()
+            difference = (call_time - Monitor._last_client_refresh).total_seconds()
             if difference <= MIN_TIME_BETWEEN_CLI_REFRESH:
                 return False
 
-            self._last_client_refresh = datetime.now()
+            Monitor._last_client_refresh = call_time
             refresh_gateway = False
-            if self._not_logged_count >= 30:
-                self._not_logged_count = 0
+            if Monitor._not_logged_count >= 30:
+                Monitor._not_logged_count = 0
                 refresh_gateway = True
-            self._not_logged_count += 1
-            _LOGGER.debug("ThinQ session not connected. Trying to reconnect....")
+            Monitor._not_logged_count += 1
+            _LOGGER.debug("ThinQ client not connected. Trying to reconnect...")
             self._client.refresh(refresh_gateway)
-            level = logging.INFO if self._critical_error_logged else logging.DEBUG
-            _LOGGER.log(level, "ThinQ session reconnected")
-            self._client_connected = True
-            self._not_logged_count = 0
-            self._critical_error_logged = False
+            _LOGGER.warning("ThinQ client successfully reconnected")
+            Monitor._client_connected = True
+            Monitor._critical_error = False
+            Monitor._not_logged_count = 0
             return True
 
     def refresh(self, query_device=False) -> Optional[any]:
@@ -202,8 +216,6 @@ class Monitor(object):
             _LOGGER.debug("Polling...")
             # Wait one second between iteration
             if iteration > 0:
-                if self._not_logged or self._disconnected:
-                    break
                 time.sleep(1)
 
             try:
@@ -212,35 +224,43 @@ class Monitor(object):
                 state = self.poll(query_device)
 
             except NotConnectedError:
-                _LOGGER.debug("Device %s not connected. Status not available", self._device_id)
                 self._disconnected = True
+                _LOGGER.debug("Device %s not connected. Status not available", self._device_id)
                 raise
 
-            except NotLoggedInError:
-                self._log_error("Connection to ThinQ not available, will be retried")
-                self._not_logged = True
-
-            except InvalidCredentialError:
-                self._log_error(
-                    "Invalid credential connecting to ThinQ. Reconfigure integration with valid login credential"
+            except NotLoggedInError as exc:
+                # This could be raised by an expired token
+                self._set_not_logged(
+                    "Connection to ThinQ not available. ThinQ API error",
+                    exc=exc,
                 )
-                self._not_logged = True
+                break
+
+            except InvalidCredentialError as exc:
+                self._set_not_logged(
+                    "Invalid credential connecting to ThinQ",
+                    exc=exc,
+                )
+                break
 
             except (
                 req_exc.ConnectionError,
                 req_exc.ConnectTimeout,
                 req_exc.ReadTimeout,
-            ):
-                self._log_error(
-                    "Connection to ThinQ failed. Network connection error"
+            ) as exc:
+                self._set_not_logged(
+                    "Connection to ThinQ failed. Network connection error",
+                    exc=exc,
                 )
-                self._not_logged = True
+                break
 
-            except Exception:
-                self._log_error(
-                    "ThinQ error while updating device status", exc_info=True
+            except Exception as exc:
+                self._set_not_logged(
+                    "ThinQ error while updating device status",
+                    exc=exc,
+                    exc_info=True,
                 )
-                self._not_logged = True
+                break
 
             else:
                 if state:
@@ -254,15 +274,15 @@ class Monitor(object):
                     _LOGGER.debug("No status available yet")
                     continue
 
-        if self._not_logged:
-            self._client_connected = False
-            if self._critical_error_logged:
-                raise MonitorError(self._device_id, "-1")
-
         return None
 
     def _restart_monitor(self) -> bool:
         """Restart the device monitor"""
+
+        if not self._not_logged:
+            # try to refresh auth token before it expires
+            self._refresh_token()
+
         if not (self._disconnected or self._not_logged):
             return True
 
@@ -278,11 +298,13 @@ class Monitor(object):
         return True
 
     def start(self) -> None:
+        """Start monitor for ThinQ1 device."""
         if self._device_type != PlatformType.THINQ1:
             return
         self._work_id = self._client.session.monitor_start(self._device_id)
 
     def stop(self) -> None:
+        """Stop monitor for ThinQ1 device."""
         if not self._work_id:
             return
         work_id = self._work_id
@@ -346,13 +368,13 @@ class Monitor(object):
         self.start()
         return self
 
-    def __exit__(self, type, value, tb) -> None:
+    def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
         self.stop()
 
 
 class DeviceInfo(object):
     """Details about a user's device.
-        
+
     This is populated from a JSON dictionary provided by the API.
     """
 
@@ -520,7 +542,7 @@ class ModelInfo(object):
 
     def value(self, name):
         """Look up information about a value.
-        
+
         Return either an `EnumValue` or a `RangeValue`.
         """
         d = self._data["Value"][name]
@@ -750,7 +772,7 @@ class ModelInfo(object):
         protocol = self._data["Monitoring"]["protocol"]
         if isinstance(protocol, list):
             for elem in protocol:
-                if "superSet" in elem: 
+                if "superSet" in elem:
                     key = elem["value"]
                     value = data
                     for ident in elem["superSet"].split("."):
@@ -811,7 +833,7 @@ class ModelInfoV2(object):
 
     def value(self, data):
         """Look up information about a value.
-        
+
         Return either an `EnumValue` or a `RangeValue`.
         """
         data_type = data.get("dataType")
@@ -1045,7 +1067,7 @@ class ModelInfoV2AC(ModelInfo):
 
 class Device(object):
     """A higher-level interface to a specific device.
-        
+
     Unlike `DeviceInfo`, which just stores data *about* a device,
     `Device` objects refer to their client and can perform operations
     regarding the device.
@@ -1191,7 +1213,7 @@ class Device(object):
 
     def _get_config(self, key):
         """Look up a device's configuration for a given value.
-            
+
         The response is parsed as base64-encoded JSON.
         """
         if not self._should_poll:
@@ -1303,14 +1325,14 @@ class Device(object):
             return
         if poll_interval <= 0:
             return
-        call_time = datetime.now()
+        call_time = datetime.utcnow()
         if self._last_additional_poll is None:
             self._last_additional_poll = (
                 call_time - timedelta(seconds=max(poll_interval - 10, 1))
             )
         difference = (call_time - self._last_additional_poll).total_seconds()
         if difference >= poll_interval:
-            self._last_additional_poll = datetime.now()
+            self._last_additional_poll = call_time
             self._get_device_info()
 
     def device_poll(

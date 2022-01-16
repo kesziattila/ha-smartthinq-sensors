@@ -1,4 +1,4 @@
-[![](https://img.shields.io/github/release/ollo69/ha-smartthinq-washer/all.svg?style=for-the-badge)](https://github.com/ollo69/ha-smartthinq-sensors/releases)
+[![](https://img.shields.io/github/release/kesziattila/ha-smartthinq-washer/all.svg?style=for-the-badge)](https://github.com/kesziattila/ha-smartthinq-sensors/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
 [![](https://img.shields.io/github/license/ollo69/ha-smartthinq-washer?style=for-the-badge)](LICENSE)
 [![](https://img.shields.io/badge/MAINTAINER-%40ollo69-red?style=for-the-badge)](https://github.com/ollo69)
@@ -11,13 +11,13 @@ Supported devices are:
 - Air Purifier
 - DishWasher
 - Dryer
-- Range 
+- Range
 - Refrigerator
 - Styler
 - Washer
 
 
-**Important Version note:** 
+**Important Version note:**
 1. From version 0.3.x component name changed from `smartthinq_washer` to `smartthinq_sensors`
 If you are upgrading to version 0.3.x from previous version, you must **remove component configuration and uninstall component**
 from Home Assistant before upgrade.<br/>
@@ -40,13 +40,13 @@ If you have HACS, just go in the Integration Tab and search the "SmartThinQ LGE 
 
 ### Option B: Manually installation (custom_component)
 Prerequisite: SSH into your server. [Home Assistant Add-on: SSH server](https://github.com/home-assistant/hassio-addons/tree/master/ssh)
-1. Clone the git master branch.  
-`git clone https://github.com/ollo69/ha-smartthinq-sensors.git`
-2. If missing, create a `custom_components` directory where your configuration.yaml file resides. This is usually in the config directory of homeassistant.  
+1. Clone the git master branch.
+`git clone https://github.com/kesziattila/ha-smartthinq-sensors.git`
+2. If missing, create a `custom_components` directory where your configuration.yaml file resides. This is usually in the config directory of homeassistant.
 `mkdir ~/.homeassistant/custom_components`
-3. Copy the smartthinq_sensors directory within the `custom_components` directory of your homeassistant installation from step 2.  
+3. Copy the smartthinq_sensors directory within the `custom_components` directory of your homeassistant installation from step 2.
 `cp -R ha-smartthinq-sensors/custom_components/smartthinq_sensors/ ~/.homeassistant/custom_components`
-4. (Optional) Delete the git repo.  
+4. (Optional) Delete the git repo.
 `rm -R ha-smartthinq-sensors/`
 
     After a correct installation, your configuration directory should look like the following.
@@ -64,7 +64,7 @@ Prerequisite: SSH into your server. [Home Assistant Add-on: SSH server](https://
 
 5. Reboot HomeAssistant
 
-## Component configuration    
+## Component configuration
 Once the component has been installed, you need to configure it in order to make it work.
 There are two ways of doing so:
 - Using the web interface (Lovelace) [**recommended**]
@@ -74,8 +74,8 @@ There are two ways of doing so:
 Simply add a new "integration" and look for "SmartThinQ LGE Sensors" among the proposed ones and
 **follow setup worflow**.<br/>
 
-**Important**: use your country and language code: SmartThinQ accounts are associated with a specific locale, 
-so be sure to use the country and language you originally created your account with. 
+**Important**: use your country and language code: SmartThinQ accounts are associated with a specific locale,
+so be sure to use the country and language you originally created your account with.
 Reference for valid code:<br/>
 
 - Country code: [ISO 3166-1 alpha-2 code][ISO-3166-1-alpha-2]<br/>
@@ -278,7 +278,7 @@ entity: 'sensor.the_dryer_dryer' # Washers work too!
 
 - Alternative: Washer picture status card (LG전자 / CC BY (https://creativecommons.org/licenses/by/2.0) for image. Find the images [here](/washerpics/))
 <details><summary>Hidden, click to expand</summary>
-    
+
 configuration.yaml:
 ```yaml
 sensor:
@@ -328,6 +328,8 @@ Credits
 This component is developed by [Ollo69][ollo69] based on [WideQ API][wideq].<br/>
 Original WideQ API was developed by [Adrian Sampson][adrian] under license [MIT][].
 
+
+[kesziattila]: https://github.com/kesziattila
 [ollo69]: https://github.com/ollo69
 [wideq]: https://github.com/sampsyo/wideq
 [adrian]: https://github.com/sampsyo

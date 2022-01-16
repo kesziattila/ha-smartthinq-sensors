@@ -20,6 +20,10 @@ FEAT_HUMIDITY = "humidity"
 FEAT_HOT_WATER_TEMP = "hot_water_temperature"
 FEAT_IN_WATER_TEMP = "in_water_temperature"
 FEAT_OUT_WATER_TEMP = "out_water_temperature"
+FEAT_HOT_WATER = "hot_water"
+FEAT_HOT_WATER_TARGET_TEMP = "hot_water_target_temperature"
+FEAT_TEMP_SWITCH = "temp_switch"
+FEAT_WATER_CONTROL = "water_control"
 
 # wash devices features
 FEAT_DRYLEVEL = "dry_level"
